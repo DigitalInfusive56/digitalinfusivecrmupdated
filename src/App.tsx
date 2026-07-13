@@ -52,6 +52,16 @@ const LOST_REASONS = [
 const generateId = () => Math.random().toString(36).substr(2, 9);
 const normalizeEmail = (email = '') => String(email).trim().toLowerCase();
 const normalizePassword = (password = '') => String(password).trim();
+const TEAM_USERS_STORAGE_KEY = 'infusive_crm_team_users';
+
+const loadSavedUsers = () => {
+  try {
+    const savedUsers = window.localStorage.getItem(TEAM_USERS_STORAGE_KEY);
+    return savedUsers ? JSON.parse(savedUsers) : INITIAL_USERS;
+  } catch {
+    return INITIAL_USERS;
+  }
+};
 
 // --- INITIAL DATABASE STATE ---
 const INITIAL_USERS = [];
@@ -840,8 +850,7 @@ const LeadDetailModal = () => {
 
 export default function App() {
   const [users, setUsers] = useState(() => {
-    const savedUsers = window.localStorage.getItem('infusive_crm_team_users');
-    return savedUsers ? JSON.parse(savedUsers) : INITIAL_USERS;
+    return loadSavedUsers();
   });
   const [currentUser, setCurrentUser] = useState(null); 
   const [isLoggedIn, setIsLoggedIn] = useState(false);
@@ -866,7 +875,7 @@ export default function App() {
   };
 
   useEffect(() => {
-    window.localStorage.setItem('infusive_crm_team_users', JSON.stringify(users));
+    window.localStorage.setItem(TEAM_USERS_STORAGE_KEY, JSON.stringify(users));
   }, [users]);
 
   const handleLogin = async (e) => {
@@ -874,7 +883,11 @@ export default function App() {
     const email = normalizeEmail(loginEmail);
     const password = normalizePassword(loginPassword);
 
-    const matchingTeamUser = users.find(user => user.id !== 'super-admin' && normalizeEmail(user.email) === email);
+    const latestUsers = loadSavedUsers();
+    const allUsers = [...latestUsers, ...users].filter((user, index, list) =>
+      user?.id && list.findIndex(item => item.id === user.id) === index
+    );
+    const matchingTeamUser = allUsers.find(user => user.id !== 'super-admin' && normalizeEmail(user.email) === email);
     const teamUser = matchingTeamUser && normalizePassword(matchingTeamUser.password) === password ? matchingTeamUser : null;
 
     if (teamUser) {
