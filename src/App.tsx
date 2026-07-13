@@ -50,6 +50,8 @@ const LOST_REASONS = [
 ];
 
 const generateId = () => Math.random().toString(36).substr(2, 9);
+const normalizeEmail = (email = '') => String(email).trim().toLowerCase();
+const normalizePassword = (password = '') => String(password).trim();
 
 // --- INITIAL DATABASE STATE ---
 const INITIAL_USERS = [];
@@ -634,7 +636,7 @@ const TeamManagementView = () => {
   const handleAddUser = (e) => { 
     e.preventDefault(); 
     if(newUserName && newUserEmail && newUserPassword) { 
-      addUser({ name: newUserName, email: newUserEmail, password: newUserPassword, role: newUserRole }); 
+      addUser({ name: newUserName.trim(), email: normalizeEmail(newUserEmail), password: normalizePassword(newUserPassword), role: newUserRole }); 
       setNewUserName(''); setNewUserEmail(''); setNewUserPassword('');
     } 
   };
@@ -659,7 +661,7 @@ const TeamManagementView = () => {
             <div className="md:col-span-1"><label className="block text-sm font-medium text-slate-700 mb-1">Full Name</label><input required type="text" value={newUserName} onChange={e => setNewUserName(e.target.value)} className="w-full rounded-lg border-slate-300 focus:border-blue-500 shadow-sm" placeholder="e.g. John Doe"/></div>
             <div className="md:col-span-1"><label className="block text-sm font-medium text-slate-700 mb-1">Email Address</label><input required type="email" value={newUserEmail} onChange={e => setNewUserEmail(e.target.value)} className="w-full rounded-lg border-slate-300 focus:border-blue-500 shadow-sm" placeholder="john@crm.com"/></div>
             <div className="md:col-span-1"><label className="block text-sm font-medium text-slate-700 mb-1">Password</label><input required type="text" value={newUserPassword} onChange={e => setNewUserPassword(e.target.value)} className="w-full rounded-lg border-slate-300 focus:border-blue-500 shadow-sm" placeholder="Temporary Pass"/></div>
-            <div className="md:col-span-1"><label className="block text-sm font-medium text-slate-700 mb-1">Assign Role</label><select value={newUserRole} onChange={e => setNewUserRole(e.target.value)} className="w-full rounded-lg border-slate-300 focus:border-blue-500 shadow-sm">{Object.values(ROLES).map(r => <option key={r} value={r}>{r}</option>)}</select></div>
+            <div className="md:col-span-1"><label className="block text-sm font-medium text-slate-700 mb-1">Assign Role</label><select value={newUserRole} onChange={e => setNewUserRole(e.target.value)} className="w-full rounded-lg border-slate-300 focus:border-blue-500 shadow-sm">{Object.values(ROLES).filter(r => r !== ROLES.ADMIN).map(r => <option key={r} value={r}>{r}</option>)}</select></div>
             <div className="md:col-span-1"><button type="submit" className="w-full bg-blue-600 text-white px-4 py-2.5 rounded-lg font-medium hover:bg-blue-700 shadow-sm transition-colors"><Plus size={18} className="inline mr-1" /> Add User</button></div>
           </form>
         </div>
@@ -869,13 +871,11 @@ export default function App() {
 
   const handleLogin = async (e) => {
     e.preventDefault();
-    const email = loginEmail.trim().toLowerCase();
+    const email = normalizeEmail(loginEmail);
+    const password = normalizePassword(loginPassword);
 
-    const teamUser = users.find(user =>
-      user.role !== ROLES.ADMIN &&
-      user.email?.trim().toLowerCase() === email &&
-      user.password === loginPassword
-    );
+    const matchingTeamUser = users.find(user => user.id !== 'super-admin' && normalizeEmail(user.email) === email);
+    const teamUser = matchingTeamUser && normalizePassword(matchingTeamUser.password) === password ? matchingTeamUser : null;
 
     if (teamUser) {
       setCurrentUser(teamUser);
@@ -883,6 +883,11 @@ export default function App() {
       setLoginError('');
       setCurrentView('dashboard');
       setLoginPassword('');
+      return;
+    }
+
+    if (matchingTeamUser) {
+      setLoginError('Team user found, but password is incorrect. Check the password created in Team Management.');
       return;
     }
 
@@ -913,11 +918,11 @@ export default function App() {
       const adminData = adminSnap.data();
       const adminEmail = String(adminData.email || adminData.adminEmail || '').trim().toLowerCase();
       const adminPassword = String(adminData.password || adminData.adminPassword || '');
-      const isAdminLogin = adminEmail && adminPassword && email === adminEmail && loginPassword === adminPassword;
+      const isAdminLogin = adminEmail && adminPassword && email === adminEmail && password === normalizePassword(adminPassword);
 
       if (!isAdminLogin) {
         await signOut(auth);
-        setLoginError('Invalid admin credentials.');
+        setLoginError('No team user found with this email, and admin credentials did not match.');
         return;
       }
 
