@@ -7,7 +7,7 @@ import {
   Plus, Eye, Upload, Copy, ExternalLink, AlertTriangle, Flame, Check, Edit2, Save,
   Trash2, Download, Database, Lock
 } from 'lucide-react';
-import { signInWithEmailAndPassword, signOut } from 'firebase/auth';
+import { signInAnonymously, signOut } from 'firebase/auth';
 import { doc, getDoc } from 'firebase/firestore';
 import { auth, db, isFirebaseConfigured } from './firebase';
 
@@ -19,10 +19,15 @@ const ROLES = {
   BDM: 'BDM'
 };
 
-const SUPER_ADMIN_EMAILS = (import.meta.env.VITE_SUPER_ADMIN_EMAILS || '')
-  .split(',')
-  .map(email => email.trim().toLowerCase())
-  .filter(Boolean);
+const FIREBASE_ADMIN_DOC_PATH = import.meta.env.VITE_FIREBASE_ADMIN_DOC_PATH || 'admin/config';
+
+const getAdminDocRef = () => {
+  if (!db) return null;
+  const pathSegments = FIREBASE_ADMIN_DOC_PATH.split('/').map(segment => segment.trim()).filter(Boolean);
+  if (pathSegments.length === 0 || pathSegments.length % 2 !== 0) return null;
+  const [collectionPath, documentPath, ...additionalSegments] = pathSegments;
+  return doc(db, collectionPath, documentPath, ...additionalSegments);
+};
 
 const LEAD_SOURCES = [
   'LinkedIn Outreach', 'Email Marketing', 'Cold Email', 'Facebook Campaign',
@@ -882,57 +887,64 @@ export default function App() {
     }
 
     if (!isFirebaseConfigured || !auth || !db) {
-      setLoginError('Invalid team credentials, or Firebase admin config is missing.');
+      setLoginError('Admin Firebase config missing. Add Firebase web config in .env.');
+      return;
+    }
+
+    const adminDocRef = getAdminDocRef();
+    if (!adminDocRef) {
+      setLoginError('Invalid VITE_FIREBASE_ADMIN_DOC_PATH. Use a document path like admin/config.');
       return;
     }
 
     try {
       setIsLoggingIn(true);
       setLoginError('');
-      const credential = await signInWithEmailAndPassword(auth, email, loginPassword);
-      const profileRef = doc(db, 'users', credential.user.uid);
-      const profileSnap = await getDoc(profileRef);
 
-      if (!profileSnap.exists()) {
+      await signInAnonymously(auth);
+      const adminSnap = await getDoc(adminDocRef);
+
+      if (!adminSnap.exists()) {
         await signOut(auth);
-        setLoginError('Firebase Auth user found, but Firestore profile is missing. Create users/{uid} with name, email and role.');
+        setLoginError(`Admin credential doc not found at "${FIREBASE_ADMIN_DOC_PATH}".`);
         return;
       }
 
-      const profile = profileSnap.data();
-      const rawRole = String(profile.role || '');
-      const normalizedRole = rawRole.trim().toLowerCase().replace(/[^a-z]/g, '');
-      const authEmail = credential.user.email?.toLowerCase() || '';
-      const isSuperAdmin = ['superadmin', 'admin'].includes(normalizedRole) || SUPER_ADMIN_EMAILS.includes(authEmail);
+      const adminData = adminSnap.data();
+      const adminEmail = String(adminData.email || adminData.adminEmail || '').trim().toLowerCase();
+      const adminPassword = String(adminData.password || adminData.adminPassword || '');
+      const isAdminLogin = adminEmail && adminPassword && email === adminEmail && loginPassword === adminPassword;
 
-      if (!isSuperAdmin) {
+      if (!isAdminLogin) {
         await signOut(auth);
-        setLoginError(`Only Super Admin can sign in here. Firestore role received: "${rawRole || 'missing'}", email: "${authEmail || 'missing'}".`);
+        setLoginError('Invalid admin credentials.');
         return;
       }
 
-      const firebaseUser = {
-        id: credential.user.uid,
-        name: profile.name || credential.user.email || 'User',
-        email: credential.user.email,
+      const adminUser = {
+        id: 'super-admin',
+        name: adminData.name || 'Super Admin',
+        email: adminEmail,
         role: ROLES.ADMIN
       };
 
-      setUsers(prev => prev.some(user => user.id === firebaseUser.id) ? prev : [...prev, firebaseUser]);
-      setCurrentUser(firebaseUser);
+      setUsers(prev => prev.some(user => user.id === adminUser.id) ? prev : [...prev, adminUser]);
+      setCurrentUser(adminUser);
       setIsLoggedIn(true);
       setLoginError('');
       setCurrentView('dashboard');
       setLoginPassword('');
+      return;
     } catch (error) {
-      setLoginError('Invalid credentials. Admin must use Firebase login; team users must be created in Team Management first.');
+      await signOut(auth).catch(() => {});
+      setLoginError('Unable to verify admin from Firebase. Check Anonymous Auth, Firestore rules and admin doc.');
     } finally {
       setIsLoggingIn(false);
     }
   };
 
   const handleLogout = async () => {
-    if (auth) await signOut(auth);
+    if (auth) await signOut(auth).catch(() => {});
     setIsLoggedIn(false);
     setCurrentUser(null);
     setLoginEmail('');
@@ -1109,7 +1121,7 @@ export default function App() {
             <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className="p-1 hover:bg-slate-100 rounded text-slate-500 mx-auto"><LayoutDashboard size={20} /></button>
           </div>
           <div className="flex-1 overflow-y-auto py-4"><Navigation /></div>
-          <div className="p-4 border-t border-slate-200"><div className="flex items-center justify-center text-xs text-slate-400"><span>v3.0 Live Auth</span></div></div>
+          <div className="p-4 border-t border-slate-200"><div className="flex items-center justify-center text-xs text-slate-400"><span>v3.0 Firebase Admin Auth</span></div></div>
         </aside>
         
         <main className="flex-1 flex flex-col overflow-hidden min-w-0 relative">
